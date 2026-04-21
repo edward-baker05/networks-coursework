@@ -5,8 +5,8 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>coursework</groupId>
-    <artifactId>UDP-Server</artifactId>
-    <version>0</version>
+    <artifactId>TFTP-UDP-Server</artifactId>
+    <version>1.0-SNAPSHOT</version>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

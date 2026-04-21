@@ -13,9 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-/**
- * Unit tests for {@link TftpTcpProtocol} — the simplified TCP wire format.
- */
+/** Unit tests for {@link TftpTcpProtocol} — builder/parser round-trips. */
 class TftpTcpProtocolTest {
 
     private static DataOutputStream dos(ByteArrayOutputStream bos) {

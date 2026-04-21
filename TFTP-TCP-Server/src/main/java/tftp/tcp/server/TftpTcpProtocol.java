@@ -6,24 +6,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Helper for the simplified TFTP-over-TCP protocol.
+ * Wire protocol helpers for the simplified TFTP-over-TCP implementation.
  *
- * Because TCP provides ordered, reliable delivery there are no per-block
- * acknowledgements or retransmissions — one DATA message carries the entire file.
- *
- * Wire format (all multi-byte integers big-endian):
- *
- *   RRQ / WRQ request:
- *     opcode(short=1 or 2) | filename(bytes) | 0x00 | "octet"(bytes) | 0x00
- *
- *   DATA response (server->client for RRQ, client->server for WRQ):
- *     opcode(short=3) | fileLength(long, 8 bytes) | data(fileLength bytes)
- *
- *   ERROR:
- *     opcode(short=5) | errorCode(short) | message(bytes) | 0x00
- *
- * All methods assume the opcode has already been consumed by the caller before
- * invoking readRequest / readData / readErrorCode.
+ * TCP guarantees ordered, reliable delivery so one DATA message carries the entire file.
+ * Wire format (big-endian):
+ *   RRQ/WRQ : opcode(2) | filename | 0x00 | "octet" | 0x00
+ *   DATA    : opcode(2) | fileLength(8) | data(fileLength bytes)
+ *   ERROR   : opcode(2) | errorCode(2) | message | 0x00
  */
 public final class TftpTcpProtocol {
 
@@ -43,19 +32,21 @@ public final class TftpTcpProtocol {
     // -------------------------------------------------------------------------
 
     /**
-     * Read the filename and mode fields of an RRQ/WRQ (opcode already read).
+     * Reads the filename and mode from an RRQ/WRQ (opcode already consumed by caller).
      *
-     * @return String[]{filename, mode}
+     * @param in the input stream positioned after the opcode.
+     * @return String[] where [0] is the filename and [1] is the mode.
      */
     public static String[] readRequest(DataInputStream in) throws IOException {
         return new String[]{readNullTermString(in), readNullTermString(in)};
     }
 
     /**
-     * Read a DATA message body (opcode already read).
-     * Reads an 8-byte length prefix then exactly that many bytes.
+     * Reads a DATA message body (opcode already consumed by caller).
+     * An 8-byte big-endian length prefix is read first, followed by that many bytes.
      *
-     * @return the complete file byte array
+     * @param in the input stream positioned after the DATA opcode.
+     * @return the complete file content as a byte array.
      */
     public static byte[] readData(DataInputStream in) throws IOException {
         long len = in.readLong();
@@ -68,8 +59,10 @@ public final class TftpTcpProtocol {
     }
 
     /**
-     * Read the error code from an ERROR message body (opcode already read).
-     * The error message string can subsequently be read with {@link #readNullTermString}.
+     * Reads the error code from an ERROR message body (opcode already consumed).
+     *
+     * @param in the input stream positioned after the ERROR opcode.
+     * @return the 2-byte error code as an unsigned int.
      */
     public static int readErrorCode(DataInputStream in) throws IOException {
         return in.readShort() & 0xFFFF;
@@ -110,9 +103,10 @@ public final class TftpTcpProtocol {
     }
 
     /**
-     * Write a DATA message: opcode(2) + fileLength(8) + data bytes.
+     * Writes a DATA message: opcode(2) + length(8) + file bytes.
      *
-     * @param data complete file content
+     * @param out the output stream.
+     * @param data the complete file content to send.
      */
     public static void writeData(DataOutputStream out, byte[] data) throws IOException {
         out.writeShort(OP_DATA);

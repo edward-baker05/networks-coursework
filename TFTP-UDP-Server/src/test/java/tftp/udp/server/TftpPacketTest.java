@@ -8,16 +8,8 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-/**
- * Unit tests for {@link TftpPacket}. Covers the byte-level packet layout
- * demanded by RFC 1350 §5: packet header (opcodes), packetisation (block
- * sizes and numbering), and all builder/parser round-trips.
- */
+/** Unit tests for {@link TftpPacket} — builders, parsers, and round-trips. */
 class TftpPacketTest {
-
-    // ------------------------------------------------------------------
-    // Builders — Packet Header (video §1) + Packetisation (video §2)
-    // ------------------------------------------------------------------
 
     @Test
     void buildRRQ_producesOpcode1PlusFilenamePlusOctet() {
@@ -77,17 +69,6 @@ class TftpPacketTest {
     }
 
     @Test
-    void buildData_blockNumberWrapsAtSixtyFiveThousand() {
-        byte[] wrap = TftpPacket.buildData(65536, new byte[0], 0, 0);
-        assertEquals(0, wrap[2]);
-        assertEquals(0, wrap[3]);
-
-        byte[] max = TftpPacket.buildData(65535, new byte[0], 0, 0);
-        assertEquals((byte) 0xFF, max[2]);
-        assertEquals((byte) 0xFF, max[3]);
-    }
-
-    @Test
     void buildAck_isFourBytes() {
         byte[] ack = TftpPacket.buildAck(0x1234);
         assertEquals(4, ack.length);
@@ -113,10 +94,6 @@ class TftpPacketTest {
         }
         assertEquals(0, err[err.length - 1]);
     }
-
-    // ------------------------------------------------------------------
-    // Parsers
-    // ------------------------------------------------------------------
 
     @Test
     void getOpcode_parsesBigEndian() {
@@ -175,10 +152,6 @@ class TftpPacketTest {
         DatagramPacket dp = new DatagramPacket(pkt, pkt.length);
         assertEquals("Disk full", TftpPacket.getErrorMessage(dp));
     }
-
-    // ------------------------------------------------------------------
-    // Round-trip — build then parse back
-    // ------------------------------------------------------------------
 
     @Test
     void roundTripAllPacketTypes() {

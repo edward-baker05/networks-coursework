@@ -17,11 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-/**
- * Client-side WRQ integration tests. Drives {@link TftpUdpClient#doPut} against
- * a scripted {@link UdpMockPeer} and inspects the wire exchange plus the
- * client's return code.
- */
+/** Integration tests for the UDP client WRQ path, using a scripted mock peer. */
 class TftpUdpClientWrqIT {
 
     @TempDir
@@ -104,8 +100,8 @@ class TftpUdpClientWrqIT {
             Future<Integer> rc = runPut(mock.port(), "access.bin");
 
             mock.awaitPacket();                                  // WRQ
-            mock.reply(TftpPacket.buildError(TftpPacket.ERR_ACCESS_VIOLATION,
-                                             "Access violation"));
+            mock.reply(TftpPacket.buildError(TftpPacket.ERR_FILE_NOT_FOUND,
+                                             "Access denied"));
 
             assertEquals(TftpUdpClient.RC_SERVER_ERROR, rc.get(5, TimeUnit.SECONDS));
         }

@@ -13,12 +13,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-/**
- * Tests the server's receipt of an initial RRQ/WRQ on the welcome port.
- * These correspond to the "initiating requests" topic from the assignment's
- * §3 debugger walkthrough — they exercise the exact entry point where the
- * accept loop decodes the opcode and hands the session off to a handler.
- */
+/** Tests the server's handling of an initial RRQ/WRQ arriving at the welcome port. */
 class TftpUdpServerInitiationIT {
 
     @TempDir

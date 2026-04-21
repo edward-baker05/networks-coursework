@@ -10,10 +10,7 @@ import java.nio.file.Path;
 
 /**
  * Handles a single TFTP-over-TCP client connection.
- *
- * Reads an opcode from the stream, dispatches to RRQ or WRQ handling,
- * then closes the socket.  No per-block ACKs are used because TCP already
- * guarantees ordered, reliable delivery.
+ * Reads the request opcode, dispatches to RRQ or WRQ handling, then closes the socket.
  */
 public class TftpTcpHandler implements Runnable {
 
@@ -92,9 +89,6 @@ public class TftpTcpHandler implements Runnable {
         System.out.println("[WRQ] " + remote + " -> " + filename);
 
         try {
-            // The client prefixes the DATA payload with the DATA opcode (matching
-            // the same writeData method used for the server's RRQ response).
-            // Consume the opcode before reading the length-prefixed file bytes.
             int dataOpcode = in.readShort() & 0xFFFF;
             if (dataOpcode != TftpTcpProtocol.OP_DATA) {
                 TftpTcpProtocol.writeError(out, TftpTcpProtocol.ERR_ILLEGAL_OP,

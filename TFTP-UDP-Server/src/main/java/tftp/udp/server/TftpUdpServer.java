@@ -14,12 +14,10 @@ import java.util.concurrent.TimeUnit;
  * TFTP UDP Server (RFC 1350, octet mode).
  *
  * Usage: java tftp.udp.server.TftpUdpServer [port]
- *   port  – UDP port to bind (default 6969)
  *
- * The server operates (reads and writes files) in the current working directory.
- * Each incoming RRQ/WRQ spawns a dedicated handler thread that opens its own
- * ephemeral socket (the server's Transfer Identifier, TID) and drives the
- * transfer independently, enabling simultaneous file transfers.
+ * Listens on the given port (default 6969) for RRQ and WRQ requests.
+ * Each request is handled on a new thread with its own ephemeral socket,
+ * allowing multiple simultaneous transfers.
  */
 public class TftpUdpServer {
 
@@ -74,8 +72,6 @@ public class TftpUdpServer {
 
             int opcode = TftpPacket.getOpcode(request);
             if (opcode != TftpPacket.OP_RRQ && opcode != TftpPacket.OP_WRQ) {
-                sendError(welcomeSocket, request.getAddress(), request.getPort(),
-                          TftpPacket.ERR_ILLEGAL_OP, "Expected RRQ or WRQ");
                 continue;
             }
 
@@ -87,14 +83,6 @@ public class TftpUdpServer {
 
             pool.submit(new TftpTransferHandler(opcode, reqCopy, clientAddr, clientPort, baseDir));
         }
-    }
-
-    private static void sendError(DatagramSocket socket, InetAddress addr, int port,
-                                  int code, String msg) {
-        try {
-            byte[] err = TftpPacket.buildError(code, msg);
-            socket.send(new DatagramPacket(err, err.length, addr, port));
-        } catch (Exception ignored) {}
     }
 
     /** Handle returned by {@link #start}. Call {@link #stop()} to shut down. */

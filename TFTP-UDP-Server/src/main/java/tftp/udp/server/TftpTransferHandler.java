@@ -9,22 +9,11 @@ import java.net.InetAddress;
 import java.net.SocketTimeoutException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
- * Handles a single TFTP RRQ or WRQ transfer on its own ephemeral UDP socket.
- *
- * The ephemeral socket's port is this connection's server-side TID. Opening a
- * fresh socket per transfer is the RFC-mandated approach that allows the single
- * well-known welcome port to serve many simultaneous clients.
- *
- * Timeouts and retransmissions follow RFC 1123 §4.2.3:
- *   – Each unacknowledged packet is retransmitted up to MAX_RETRIES times.
- *   – A SocketTimeoutException after TIMEOUT_MS triggers a retransmit.
- *
- * Error handling implemented:
- *   – Error code 1 (File not found) on RRQ for a missing file.
- *   – Error code 5 (Unknown TID) for packets arriving from unexpected sources.
+ * Handles a single TFTP transfer (RRQ or WRQ) on a fresh ephemeral UDP socket.
+ * Opening a new socket per transfer lets the welcome port serve multiple clients simultaneously.
+ * Unacknowledged packets are retransmitted up to MAX_RETRIES times before aborting.
  */
 public class TftpTransferHandler implements Runnable {
 
@@ -49,7 +38,6 @@ public class TftpTransferHandler implements Runnable {
 
     @Override
     public void run() {
-        // Wrap in a fake DatagramPacket so we can reuse TftpPacket.parseRequest
         DatagramPacket fakePkt = new DatagramPacket(requestData, requestData.length);
         String filename = TftpPacket.parseRequest(fakePkt)[0];
 
@@ -66,11 +54,6 @@ public class TftpTransferHandler implements Runnable {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // RRQ: server reads the local file and sends it as DATA blocks.
-    //      Client acknowledges each block before the next is sent (lock-step).
-    // -------------------------------------------------------------------------
-
     private void handleRRQ(DatagramSocket socket, String filename) throws IOException {
         Path filePath = baseDir.resolve(filename);
 
@@ -85,12 +68,6 @@ public class TftpTransferHandler implements Runnable {
         System.out.println("[RRQ] " + clientAddr.getHostAddress() + ":" + clientPort
                            + " <- " + filename + " (" + Files.size(filePath) + " bytes)");
 
-        // RFC 1350 §4: the client's TID is its source port on the welcome packet.
-        // Any reply from a different address/port is erroneous and must be
-        // rejected with ERROR(5) without disturbing the real transfer.
-        InetAddress peerAddr = clientAddr;
-        int peerPort = clientPort;
-
         int blockNum = 1;
         byte[] blockBuf = new byte[TftpPacket.BLOCK_SIZE];
 
@@ -98,16 +75,13 @@ public class TftpTransferHandler implements Runnable {
             boolean done = false;
 
             while (!done) {
-                // Read up to 512 bytes. bytesRead < BLOCK_SIZE signals end of file.
                 int bytesRead = in.readNBytes(blockBuf, 0, TftpPacket.BLOCK_SIZE);
                 done = (bytesRead < TftpPacket.BLOCK_SIZE);
 
-                // Build DATA packet: header(4) + data(bytesRead)
                 byte[] dataPacket = TftpPacket.buildData(blockNum, blockBuf, 0, bytesRead);
 
-                // Send DATA(blockNum), wait for ACK(blockNum) with retransmit on timeout.
                 int retries = 0;
-                socket.send(new DatagramPacket(dataPacket, dataPacket.length, peerAddr, peerPort));
+                socket.send(new DatagramPacket(dataPacket, dataPacket.length, clientAddr, clientPort));
 
                 ackLoop:
                 while (true) {
@@ -118,20 +92,10 @@ public class TftpTransferHandler implements Runnable {
                         socket.receive(resp);
                     } catch (SocketTimeoutException e) {
                         if (++retries >= MAX_RETRIES) {
-                            System.err.println("[RRQ] Timeout: " + filename
-                                               + " block " + blockNum + " after "
-                                               + MAX_RETRIES + " retries");
+                            System.err.println("[RRQ] Timeout: " + filename + " block " + blockNum);
                             return;
                         }
-                        // Retransmit the current DATA block
-                        socket.send(new DatagramPacket(dataPacket, dataPacket.length, peerAddr, peerPort));
-                        continue;
-                    }
-
-                    // TID check: anything not from the original client is rejected.
-                    if (!resp.getAddress().equals(peerAddr) || resp.getPort() != peerPort) {
-                        sendError(socket, resp.getAddress(), resp.getPort(),
-                                  TftpPacket.ERR_UNKNOWN_TID, "Unknown transfer ID");
+                        socket.send(new DatagramPacket(dataPacket, dataPacket.length, clientAddr, clientPort));
                         continue;
                     }
 
@@ -140,16 +104,11 @@ public class TftpTransferHandler implements Runnable {
                         System.err.println("[RRQ] Client error: " + TftpPacket.getErrorMessage(resp));
                         return;
                     }
-                    if (op == TftpPacket.OP_ACK) {
-                        int ackBlock = TftpPacket.getBlockNumber(resp);
-                        if (ackBlock == (blockNum & 0xFFFF)) {
-                            break ackLoop;  // Correct ACK received
-                        }
-                        // Duplicate / out-of-order ACK — ignore, keep waiting
+                    if (op == TftpPacket.OP_ACK && TftpPacket.getBlockNumber(resp) == blockNum) {
+                        break ackLoop;
                     }
                 }
 
-                // Advance block number (16-bit unsigned wrap: 65535 -> 0)
                 blockNum++;
             }
         }
@@ -157,22 +116,12 @@ public class TftpTransferHandler implements Runnable {
         System.out.println("[RRQ] Complete: " + filename);
     }
 
-    // -------------------------------------------------------------------------
-    // WRQ: server sends ACK(0), then receives DATA blocks from the client.
-    //      Each DATA block is acknowledged before the client sends the next.
-    // -------------------------------------------------------------------------
-
     private void handleWRQ(DatagramSocket socket, String filename) throws IOException {
         System.out.println("[WRQ] " + clientAddr.getHostAddress() + ":" + clientPort
                            + " -> " + filename);
 
-        // RFC 1350 §4: respond to WRQ with ACK(0) to signal readiness.
         byte[] ack0 = TftpPacket.buildAck(0);
         socket.send(new DatagramPacket(ack0, ack0.length, clientAddr, clientPort));
-
-        // TID locked to client from the WRQ source address/port.
-        InetAddress peerAddr = clientAddr;
-        int peerPort = clientPort;
 
         int expectedBlock = 1;
         byte[] lastAck = ack0;
@@ -189,19 +138,10 @@ public class TftpTransferHandler implements Runnable {
                     retries = 0;
                 } catch (SocketTimeoutException e) {
                     if (++retries >= MAX_RETRIES) {
-                        System.err.println("[WRQ] Timeout waiting for block " + expectedBlock
-                                           + " after " + MAX_RETRIES + " retries");
+                        System.err.println("[WRQ] Timeout waiting for block " + expectedBlock);
                         return;
                     }
-                    // RFC 1350: on timeout the last-sent packet is retransmitted.
-                    socket.send(new DatagramPacket(lastAck, lastAck.length, peerAddr, peerPort));
-                    continue;
-                }
-
-                // TID check
-                if (!pkt.getAddress().equals(peerAddr) || pkt.getPort() != peerPort) {
-                    sendError(socket, pkt.getAddress(), pkt.getPort(),
-                              TftpPacket.ERR_UNKNOWN_TID, "Unknown transfer ID");
+                    socket.send(new DatagramPacket(lastAck, lastAck.length, clientAddr, clientPort));
                     continue;
                 }
 
@@ -213,29 +153,18 @@ public class TftpTransferHandler implements Runnable {
                 if (op != TftpPacket.OP_DATA) continue;
 
                 int blockNum = TftpPacket.getBlockNumber(pkt);
-
-                // Duplicate of the previously acknowledged block → re-send the last ACK.
-                if (blockNum == ((expectedBlock - 1) & 0xFFFF)) {
-                    socket.send(new DatagramPacket(lastAck, lastAck.length, peerAddr, peerPort));
-                    continue;
-                }
-
-                // Unexpected block number — discard.
-                if (blockNum != (expectedBlock & 0xFFFF)) continue;
+                if (blockNum != expectedBlock) continue;
 
                 byte[] data = TftpPacket.getData(pkt);
                 out.write(data);
 
-                // Acknowledge this block
                 lastAck = TftpPacket.buildAck(blockNum);
-                socket.send(new DatagramPacket(lastAck, lastAck.length, peerAddr, peerPort));
+                socket.send(new DatagramPacket(lastAck, lastAck.length, clientAddr, clientPort));
 
                 if (data.length < TftpPacket.BLOCK_SIZE) {
-                    // Final block (RFC: data < 512 bytes signals end of transfer)
                     break;
                 }
 
-                // 16-bit block number wrap
                 expectedBlock++;
             }
         }

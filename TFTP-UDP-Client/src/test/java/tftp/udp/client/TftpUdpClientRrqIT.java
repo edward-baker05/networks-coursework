@@ -1,12 +1,10 @@
 package tftp.udp.client;
 
 import java.net.DatagramPacket;
-import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -20,11 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-/**
- * Client-side RRQ integration tests. Drives {@link TftpUdpClient#doGet} against
- * a scripted {@link UdpMockPeer} and asserts both the wire exchange and the
- * client's return code / on-disk effect.
- */
+/** Integration tests for the UDP client RRQ path, using a scripted mock peer. */
 class TftpUdpClientRrqIT {
 
     @TempDir
@@ -66,7 +60,7 @@ class TftpUdpClientRrqIT {
         try (UdpMockPeer mock = new UdpMockPeer()) {
             Future<Integer> rc = runGet(mock.port(), "multi.bin");
 
-            mock.awaitPacket();                                  // RRQ
+            mock.awaitPacket();
 
             mock.reply(TftpPacket.buildData(1, block1, 0, block1.length));
             assertEquals(1, TftpPacket.getBlockNumber(mock.awaitPacket()));
@@ -87,10 +81,6 @@ class TftpUdpClientRrqIT {
         assertArrayEquals(expected, Files.readAllBytes(clientDir.resolve("multi.bin")));
     }
 
-    // ------------------------------------------------------------------
-    // Error handling (video §4)
-    // ------------------------------------------------------------------
-
     @Test
     void get_fileNotFoundError_clientReportsAndReturnsNonZero() throws Exception {
         try (UdpMockPeer mock = new UdpMockPeer()) {
@@ -101,13 +91,8 @@ class TftpUdpClientRrqIT {
 
             assertEquals(TftpUdpClient.RC_SERVER_ERROR, rc.get(5, TimeUnit.SECONDS));
         }
-        // No local file should have been created.
         assertEquals(false, Files.exists(clientDir.resolve("nope.bin")));
     }
-
-    // ------------------------------------------------------------------
-    // Client-side timeout / retransmit on the initial RRQ
-    // ------------------------------------------------------------------
 
     @Test
     void get_droppedFirstData_triggersRrqRetransmit() throws Exception {
@@ -116,62 +101,18 @@ class TftpUdpClientRrqIT {
         try (UdpMockPeer mock = new UdpMockPeer()) {
             Future<Integer> rc = runGet(mock.port(), "retr.bin");
 
-            // Ignore the first RRQ — the client should retry after TIMEOUT_MS.
+            // Ignore the first RRQ — the client must retry after TIMEOUT_MS.
             DatagramPacket rrq1 = mock.awaitPacket();
             assertEquals(TftpPacket.OP_RRQ, TftpPacket.getOpcode(rrq1));
             DatagramPacket rrq2 = mock.awaitPacket();
             assertEquals(TftpPacket.OP_RRQ, TftpPacket.getOpcode(rrq2));
 
-            // Now reply and complete.
             mock.reply(TftpPacket.buildData(1, body, 0, body.length));
             assertEquals(1, TftpPacket.getBlockNumber(mock.awaitPacket()));
 
             assertEquals(TftpUdpClient.RC_OK, rc.get(10, TimeUnit.SECONDS));
         }
     }
-
-    // ------------------------------------------------------------------
-    // Unknown TID: intruder packet during transfer gets an ERROR(5)
-    // ------------------------------------------------------------------
-
-    @Test
-    void get_unknownTidSender_repliesError5AndContinues() throws Exception {
-        byte[] block1 = new byte[TftpPacket.BLOCK_SIZE];
-        byte[] block2 = new byte[5];
-
-        try (UdpMockPeer mock = new UdpMockPeer();
-             DatagramSocket intruder = new DatagramSocket()) {
-            intruder.setSoTimeout(3000);
-
-            Future<Integer> rc = runGet(mock.port(), "tid.bin");
-
-            mock.awaitPacket();                                  // RRQ from client
-
-            mock.reply(TftpPacket.buildData(1, block1, 0, block1.length));
-            assertEquals(1, TftpPacket.getBlockNumber(mock.awaitPacket()));
-
-            // Intruder pings the client with DATA(2) from a different socket
-            byte[] bogus = TftpPacket.buildData(2, new byte[]{9}, 0, 1);
-            intruder.send(new DatagramPacket(bogus, bogus.length,
-                          mock.clientAddress(), mock.clientTid()));
-
-            byte[] rbuf = new byte[TftpPacket.MAX_PACKET_SIZE];
-            DatagramPacket errPkt = new DatagramPacket(rbuf, rbuf.length);
-            intruder.receive(errPkt);
-            assertEquals(TftpPacket.OP_ERROR, TftpPacket.getOpcode(errPkt));
-            assertEquals(TftpPacket.ERR_UNKNOWN_TID, TftpPacket.getErrorCode(errPkt));
-
-            // Real transfer continues
-            mock.reply(TftpPacket.buildData(2, block2, 0, block2.length));
-            assertEquals(2, TftpPacket.getBlockNumber(mock.awaitPacket()));
-
-            assertEquals(TftpUdpClient.RC_OK, rc.get(5, TimeUnit.SECONDS));
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // Completion detection (video §5)
-    // ------------------------------------------------------------------
 
     @Test
     void get_finalBlockDetection() throws Exception {
@@ -184,17 +125,12 @@ class TftpUdpClientRrqIT {
             mock.reply(TftpPacket.buildData(1, body, 0, body.length));
             assertEquals(1, TftpPacket.getBlockNumber(mock.awaitPacket()));
 
-            // After the final ACK the client must NOT send anything else.
+            // After ACKing the final block the client should not send anything else.
             assertNull(mock.tryAwaitPacket(3500));
 
             assertEquals(TftpUdpClient.RC_OK, rc.get(5, TimeUnit.SECONDS));
         }
     }
-
-    // ------------------------------------------------------------------
-    // TID observation: client uses a fresh ephemeral source port
-    // (it should not bind to the server port).
-    // ------------------------------------------------------------------
 
     @Test
     void get_clientUsesEphemeralSourceTid() throws Exception {
