@@ -3,7 +3,6 @@ package tftp.tcp.client;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
-import java.io.IOException;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,6 +25,12 @@ import java.util.Scanner;
  * connection, exchanges a single request/response, and closes.
  */
 public class TftpTcpClient {
+
+    /** doGet/doPut return codes. */
+    public static final int RC_OK              = 0;
+    public static final int RC_SERVER_ERROR    = 1;
+    public static final int RC_LOCAL_NOT_FOUND = 3;
+    public static final int RC_PROTOCOL_ERROR  = 4;
 
     public static void main(String[] args) throws Exception {
         String operation = null;
@@ -56,21 +61,24 @@ public class TftpTcpClient {
             filename = sc.nextLine().trim();
         }
 
-        switch (operation) {
-            case "get" -> doGet(host, port, filename);
-            case "put" -> doPut(host, port, filename);
+        Path baseDir = Paths.get(".");
+
+        int rc = switch (operation) {
+            case "get" -> doGet(host, port, filename, baseDir);
+            case "put" -> doPut(host, port, filename, baseDir);
             default -> {
                 System.err.println("Unknown operation '" + operation + "'. Use 'get' or 'put'.");
-                System.exit(1);
+                yield 1;
             }
-        }
+        };
+        System.exit(rc);
     }
 
     // -------------------------------------------------------------------------
     // GET (RRQ): request a file from the server.
     // -------------------------------------------------------------------------
 
-    private static void doGet(String host, int port, String filename) throws Exception {
+    static int doGet(String host, int port, String filename, Path baseDir) throws Exception {
         System.out.println("[GET] " + filename + " from " + host + ":" + port);
 
         try (Socket socket = new Socket(host, port);
@@ -87,18 +95,19 @@ public class TftpTcpClient {
                 int code  = TftpTcpProtocol.readErrorCode(in);
                 String msg = TftpTcpProtocol.readNullTermString(in);
                 System.err.println("[GET] Server error " + code + ": " + msg);
-                System.exit(1);
+                return RC_SERVER_ERROR;
             }
 
             if (opcode != TftpTcpProtocol.OP_DATA) {
                 System.err.println("[GET] Unexpected opcode: " + opcode);
-                System.exit(1);
+                return RC_PROTOCOL_ERROR;
             }
 
             // Read the complete file
             byte[] data = TftpTcpProtocol.readData(in);
-            Files.write(Paths.get(filename), data);
+            Files.write(baseDir.resolve(filename), data);
             System.out.println("[GET] Complete: " + filename + " (" + data.length + " bytes)");
+            return RC_OK;
         }
     }
 
@@ -106,11 +115,11 @@ public class TftpTcpClient {
     // PUT (WRQ): send a local file to the server.
     // -------------------------------------------------------------------------
 
-    private static void doPut(String host, int port, String filename) throws Exception {
-        Path filePath = Paths.get(filename);
+    static int doPut(String host, int port, String filename, Path baseDir) throws Exception {
+        Path filePath = baseDir.resolve(filename);
         if (!Files.exists(filePath)) {
             System.err.println("[PUT] Local file not found: " + filename);
-            System.exit(1);
+            return RC_LOCAL_NOT_FOUND;
         }
 
         byte[] data = Files.readAllBytes(filePath);
@@ -132,13 +141,14 @@ public class TftpTcpClient {
                     int code  = TftpTcpProtocol.readErrorCode(in);
                     String msg = TftpTcpProtocol.readNullTermString(in);
                     System.err.println("[PUT] Server error " + code + ": " + msg);
-                    System.exit(1);
+                    return RC_SERVER_ERROR;
                 }
             } catch (EOFException ignored) {
                 // Server closed the connection after writing — normal success path
             }
 
             System.out.println("[PUT] Complete: " + filename);
+            return RC_OK;
         }
     }
 }

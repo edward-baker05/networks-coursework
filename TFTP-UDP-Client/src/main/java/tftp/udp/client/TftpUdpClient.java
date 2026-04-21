@@ -32,6 +32,12 @@ public class TftpUdpClient {
     private static final int TIMEOUT_MS  = 2000;
     private static final int MAX_RETRIES = 5;
 
+    /** doGet/doPut return codes. */
+    public static final int RC_OK              = 0;
+    public static final int RC_SERVER_ERROR    = 1;
+    public static final int RC_TIMEOUT         = 2;
+    public static final int RC_LOCAL_NOT_FOUND = 3;
+
     public static void main(String[] args) throws Exception {
         String operation = null;
         String filename  = null;
@@ -63,23 +69,25 @@ public class TftpUdpClient {
         }
 
         InetAddress serverAddr = InetAddress.getByName(host);
+        Path baseDir = Paths.get(".");
 
-        switch (operation) {
-            case "get" -> doGet(serverAddr, port, filename);
-            case "put" -> doPut(serverAddr, port, filename);
+        int rc = switch (operation) {
+            case "get" -> doGet(serverAddr, port, filename, baseDir);
+            case "put" -> doPut(serverAddr, port, filename, baseDir);
             default -> {
                 System.err.println("Unknown operation '" + operation + "'. Use 'get' or 'put'.");
-                System.exit(1);
+                yield 1;
             }
-        }
+        };
+        System.exit(rc);
     }
 
     // -------------------------------------------------------------------------
     // GET (RRQ): request a file from the server.
     // -------------------------------------------------------------------------
 
-    private static void doGet(InetAddress serverAddr, int serverPort,
-                              String filename) throws Exception {
+    static int doGet(InetAddress serverAddr, int serverPort,
+                     String filename, Path baseDir) throws Exception {
         System.out.println("[GET] " + filename
                            + " from " + serverAddr.getHostAddress() + ":" + serverPort);
 
@@ -111,7 +119,7 @@ public class TftpUdpClient {
                 } catch (SocketTimeoutException e) {
                     if (++retries >= MAX_RETRIES) {
                         System.err.println("[GET] Timed out after " + MAX_RETRIES + " retries.");
-                        System.exit(1);
+                        return RC_TIMEOUT;
                     }
                     socket.send(new DatagramPacket(lastSent, lastSent.length, lastDest, lastDestPort));
                     continue;
@@ -133,7 +141,7 @@ public class TftpUdpClient {
                 if (op == TftpPacket.OP_ERROR) {
                     System.err.println("[GET] Server error " + TftpPacket.getErrorCode(pkt)
                                        + ": " + TftpPacket.getErrorMessage(pkt));
-                    System.exit(1);
+                    return RC_SERVER_ERROR;
                 }
 
                 if (op != TftpPacket.OP_DATA) continue;
@@ -171,8 +179,9 @@ public class TftpUdpClient {
                 expectedBlock++;
             }
 
-            Files.write(Paths.get(filename), fileData.toByteArray());
+            Files.write(baseDir.resolve(filename), fileData.toByteArray());
             System.out.println("[GET] Complete: " + filename + " (" + fileData.size() + " bytes)");
+            return RC_OK;
         }
     }
 
@@ -180,12 +189,12 @@ public class TftpUdpClient {
     // PUT (WRQ): send a local file to the server.
     // -------------------------------------------------------------------------
 
-    private static void doPut(InetAddress serverAddr, int serverPort,
-                              String filename) throws Exception {
-        Path filePath = Paths.get(filename);
+    static int doPut(InetAddress serverAddr, int serverPort,
+                     String filename, Path baseDir) throws Exception {
+        Path filePath = baseDir.resolve(filename);
         if (!Files.exists(filePath)) {
             System.err.println("[PUT] Local file not found: " + filename);
-            System.exit(1);
+            return RC_LOCAL_NOT_FOUND;
         }
 
         byte[] fileData = Files.readAllBytes(filePath);
@@ -219,7 +228,7 @@ public class TftpUdpClient {
                 } catch (SocketTimeoutException e) {
                     if (++retries >= MAX_RETRIES) {
                         System.err.println("[PUT] Timed out waiting for ACK(0).");
-                        System.exit(1);
+                        return RC_TIMEOUT;
                     }
                     socket.send(new DatagramPacket(lastSent, lastSent.length, lastDest, lastDestPort));
                     continue;
@@ -233,7 +242,7 @@ public class TftpUdpClient {
                 if (op == TftpPacket.OP_ERROR) {
                     System.err.println("[PUT] Server error " + TftpPacket.getErrorCode(pkt)
                                        + ": " + TftpPacket.getErrorMessage(pkt));
-                    System.exit(1);
+                    return RC_SERVER_ERROR;
                 }
                 if (op == TftpPacket.OP_ACK && TftpPacket.getBlockNumber(pkt) == 0) {
                     break ack0Loop;  // WRQ accepted
@@ -268,7 +277,7 @@ public class TftpUdpClient {
                     } catch (SocketTimeoutException e) {
                         if (++retries >= MAX_RETRIES) {
                             System.err.println("[PUT] Timeout on block " + blockNum);
-                            System.exit(1);
+                            return RC_TIMEOUT;
                         }
                         socket.send(new DatagramPacket(dataPacket, dataPacket.length, serverTid, serverTidPort));
                         continue;
@@ -284,7 +293,7 @@ public class TftpUdpClient {
                     if (op == TftpPacket.OP_ERROR) {
                         System.err.println("[PUT] Server error " + TftpPacket.getErrorCode(ackPkt)
                                            + ": " + TftpPacket.getErrorMessage(ackPkt));
-                        System.exit(1);
+                        return RC_SERVER_ERROR;
                     }
                     if (op == TftpPacket.OP_ACK
                             && TftpPacket.getBlockNumber(ackPkt) == (blockNum & 0xFFFF)) {
@@ -298,6 +307,7 @@ public class TftpUdpClient {
             }
 
             System.out.println("[PUT] Complete: " + filename);
+            return RC_OK;
         }
     }
 }

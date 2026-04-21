@@ -35,13 +35,16 @@ public class TftpTransferHandler implements Runnable {
     private final byte[] requestData;
     private final InetAddress clientAddr;
     private final int clientPort;
+    private final Path baseDir;
 
     public TftpTransferHandler(int opcode, byte[] requestData,
-                               InetAddress clientAddr, int clientPort) {
+                               InetAddress clientAddr, int clientPort,
+                               Path baseDir) {
         this.opcode      = opcode;
         this.requestData = requestData;
         this.clientAddr  = clientAddr;
         this.clientPort  = clientPort;
+        this.baseDir     = baseDir;
     }
 
     @Override
@@ -69,7 +72,7 @@ public class TftpTransferHandler implements Runnable {
     // -------------------------------------------------------------------------
 
     private void handleRRQ(DatagramSocket socket, String filename) throws IOException {
-        Path filePath = Paths.get(filename);
+        Path filePath = baseDir.resolve(filename);
 
         if (!Files.exists(filePath) || !Files.isRegularFile(filePath)) {
             sendError(socket, clientAddr, clientPort,
@@ -82,11 +85,11 @@ public class TftpTransferHandler implements Runnable {
         System.out.println("[RRQ] " + clientAddr.getHostAddress() + ":" + clientPort
                            + " <- " + filename + " (" + Files.size(filePath) + " bytes)");
 
-        // The client's address and port from the welcome socket are the initial peer.
-        // After the first ACK arrives the server TID is confirmed (peerLocked = true).
+        // RFC 1350 §4: the client's TID is its source port on the welcome packet.
+        // Any reply from a different address/port is erroneous and must be
+        // rejected with ERROR(5) without disturbing the real transfer.
         InetAddress peerAddr = clientAddr;
         int peerPort = clientPort;
-        boolean peerLocked = false;
 
         int blockNum = 1;
         byte[] blockBuf = new byte[TftpPacket.BLOCK_SIZE];
@@ -125,13 +128,8 @@ public class TftpTransferHandler implements Runnable {
                         continue;
                     }
 
-                    // TID check: first ACK locks in the peer's ephemeral port.
-                    if (!peerLocked) {
-                        peerAddr  = resp.getAddress();
-                        peerPort  = resp.getPort();
-                        peerLocked = true;
-                    } else if (!resp.getAddress().equals(peerAddr) || resp.getPort() != peerPort) {
-                        // Packet from an unknown source – send error, do not abort the transfer.
+                    // TID check: anything not from the original client is rejected.
+                    if (!resp.getAddress().equals(peerAddr) || resp.getPort() != peerPort) {
                         sendError(socket, resp.getAddress(), resp.getPort(),
                                   TftpPacket.ERR_UNKNOWN_TID, "Unknown transfer ID");
                         continue;
@@ -172,32 +170,36 @@ public class TftpTransferHandler implements Runnable {
         byte[] ack0 = TftpPacket.buildAck(0);
         socket.send(new DatagramPacket(ack0, ack0.length, clientAddr, clientPort));
 
+        // TID locked to client from the WRQ source address/port.
         InetAddress peerAddr = clientAddr;
         int peerPort = clientPort;
-        boolean peerLocked = false;
 
         int expectedBlock = 1;
         byte[] lastAck = ack0;
 
-        try (OutputStream out = Files.newOutputStream(Paths.get(filename))) {
+        try (OutputStream out = Files.newOutputStream(baseDir.resolve(filename))) {
 
+            int retries = 0;
             while (true) {
                 byte[] recvBuf = new byte[TftpPacket.MAX_PACKET_SIZE];
                 DatagramPacket pkt = new DatagramPacket(recvBuf, recvBuf.length);
 
                 try {
                     socket.receive(pkt);
+                    retries = 0;
                 } catch (SocketTimeoutException e) {
-                    System.err.println("[WRQ] Timeout waiting for block " + expectedBlock);
-                    return;
+                    if (++retries >= MAX_RETRIES) {
+                        System.err.println("[WRQ] Timeout waiting for block " + expectedBlock
+                                           + " after " + MAX_RETRIES + " retries");
+                        return;
+                    }
+                    // RFC 1350: on timeout the last-sent packet is retransmitted.
+                    socket.send(new DatagramPacket(lastAck, lastAck.length, peerAddr, peerPort));
+                    continue;
                 }
 
                 // TID check
-                if (!peerLocked) {
-                    peerAddr  = pkt.getAddress();
-                    peerPort  = pkt.getPort();
-                    peerLocked = true;
-                } else if (!pkt.getAddress().equals(peerAddr) || pkt.getPort() != peerPort) {
+                if (!pkt.getAddress().equals(peerAddr) || pkt.getPort() != peerPort) {
                     sendError(socket, pkt.getAddress(), pkt.getPort(),
                               TftpPacket.ERR_UNKNOWN_TID, "Unknown transfer ID");
                     continue;

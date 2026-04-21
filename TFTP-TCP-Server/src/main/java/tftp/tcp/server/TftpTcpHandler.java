@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
  * Handles a single TFTP-over-TCP client connection.
@@ -19,9 +18,11 @@ import java.nio.file.Paths;
 public class TftpTcpHandler implements Runnable {
 
     private final Socket socket;
+    private final Path baseDir;
 
-    public TftpTcpHandler(Socket socket) {
+    public TftpTcpHandler(Socket socket, Path baseDir) {
         this.socket = socket;
+        this.baseDir = baseDir;
     }
 
     @Override
@@ -65,7 +66,7 @@ public class TftpTcpHandler implements Runnable {
 
     private void handleRRQ(DataInputStream in, DataOutputStream out,
                            String filename, String remote) throws IOException {
-        Path filePath = Paths.get(filename);
+        Path filePath = baseDir.resolve(filename);
 
         if (!Files.exists(filePath) || !Files.isRegularFile(filePath)) {
             TftpTcpProtocol.writeError(out, TftpTcpProtocol.ERR_FILE_NOT_FOUND,
@@ -101,7 +102,7 @@ public class TftpTcpHandler implements Runnable {
                 return;
             }
             byte[] data = TftpTcpProtocol.readData(in);
-            Files.write(Paths.get(filename), data);
+            Files.write(baseDir.resolve(filename), data);
             System.out.println("[WRQ] Complete: " + filename + " (" + data.length + " bytes)");
         } catch (IOException e) {
             TftpTcpProtocol.writeError(out, TftpTcpProtocol.ERR_DISK_FULL,
