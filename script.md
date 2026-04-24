@@ -27,7 +27,7 @@ Create two IntelliJ **Application** run configurations (Run → Edit Configurati
 - **Run-Server** — main class `tftp.udp.server.TftpUdpServer`, module `TFTP-UDP-Server`, working directory `$PROJECT_DIR$`.
 - **Run-Client-GET-512** — main class `tftp.udp.client.TftpUdpClient`, module `TFTP-UDP-Client`, program arguments `get 512.txt`, working directory `$PROJECT_DIR$/client-cwd` (create this empty folder first so the retrieved file lands somewhere visible).
 
-You will edit the program arguments of Run-Client-GET-512 live during the recording to run the different scenarios (`get 512.txt`, `put 512.txt`, `get missing.txt`). Have the Edit Configurations dialog's keyboard shortcut ready: `⌘⇧A` → type "Edit Configurations".
+You will edit the program arguments of Run-Client-GET-512 live during the recording to run the different scenarios (`get 512.txt`, `put 512.txt`, `get missing.txt`). Have the Edit Configurations dialogue's keyboard shortcut ready: `⌘⇧A` → type "Edit Configurations".
 
 ### 0.3 Pre-place breakpoints
 Click in the gutter of these exact lines so a red dot appears. Do this once now — you will enable/disable them with `⌘F8` during the video.
@@ -51,7 +51,7 @@ Click in the gutter of these exact lines so a red dot appears. Do this once now 
 - Line 79 — `done = (bytesRead < TftpPacket.BLOCK_SIZE);`
 - Line 107 — `if (op == TftpPacket.OP_ACK && TftpPacket.getBlockNumber(resp) == blockNum) {`
 
-**Before recording starts:** disable every breakpoint (Run → View Breakpoints → untick "Enabled"). You will re-enable them one pair at a time as the script tells you to.
+**Before recording starts:** disable every breakpoint (Run → View Breakpoints → deselect "Enabled"). You will re-enable them one pair at a time as the script tells you to.
 
 ### 0.4 File sanity
 - Confirm `512.txt`, `medium.txt`, `large.txt`, `test_image.jpg` exist in the repo root.
@@ -75,7 +75,7 @@ Click in the gutter of these exact lines so a red dot appears. Do this once now 
 
 **Action:** IntelliJ is visible with `TftpPacket.java` (server copy) open at line 1.
 
-> "This is my TFTP implementation for the networks coursework. I'll cover the packet header layout, packetisation, how RRQ and WRQ are initiated, how I signal file-not-found, and how both ends detect completion — all on the UDP version, per RFC 1350."
+> "This is my TFTP implementation for the networks' coursework. I'll cover the packet header layout, packetisation, how RRQ and WRQ are initiated, how I signal file-not-found, and how both ends detect completion — all on the UDP version, per RFC 1350."
 
 **Cumulative time:** 0:15
 
@@ -207,7 +207,7 @@ Edit the client run config args to `get missing.txt`. **Debug Run-Server**, then
 
 **Action:** In the editor, hover over the `pkt` variable in the `if (op == TftpPacket.OP_ERROR)` line. Right-click → Evaluate — type `TftpPacket.getErrorCode(pkt)` — result `1`. Then evaluate `TftpPacket.getErrorMessage(pkt)` — result `"File not found"`.
 
-> "Error code 1, message 'File not found' — exactly what the RFC specifies. The client prints this to stderr and returns `RC_SERVER_ERROR`, which `main` hands to `System.exit` so the process exit code is 1."
+> "Error code 1, message 'File not found' — exactly what the RFC specifies. The client prints this to stderr and returns `RC_SERVER_ERROR`, which `main` hands to `System.exit`, so the process exit code is 1."
 
 **Action:** Press **F9** to finish. Stop both sessions.
 
@@ -215,7 +215,7 @@ Edit the client run config args to `get missing.txt`. **Debug Run-Server**, then
 
 ---
 
-### § 5. Completion Detection — end of a RRQ (4:30 → 5:45) — 5%
+### § 5. Completion Detection — end of an RRQ (4:30 → 5:45) — 5%
 
 **Action:** Disable previous breakpoints. Enable ONLY:
 - `TftpTransferHandler.java:79` (server's end-of-file flag)
