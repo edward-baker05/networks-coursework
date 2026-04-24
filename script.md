@@ -93,11 +93,11 @@ Click in the gutter of these exact lines so a red dot appears. Do this once now 
 
 **Action:** Scroll to lines 45–57 (`buildRequest`).
 
-> "For RRQ and WRQ, the header is an opcode followed by a null-terminated filename and the mode string 'octet'. I build this with a `DataOutputStream` — `writeShort` on line 48 puts the two-byte opcode in big-endian order, then the filename bytes, a zero byte, then the literal 'octet' and another zero byte. That matches the RFC 1350 figure 5-1 layout exactly."
+> "For RRQ and WRQ, the header is an opcode followed by a null-terminated filename and the mode string 'octet'. I build this with a `DataOutputStream` — `writeShort` on line 48 puts the two-byte opcode in big-endian order, then the filename bytes, a zero byte, then the literal 'octet' and another zero byte."
 
 **Action:** Scroll to lines 68–86 (`buildData` and `buildAck`).
 
-> "DATA and ACK share the same two-field header: a two-byte opcode then a two-byte block number. `buildData` on line 68 writes opcode 3 and the block number into the first 4 bytes of a fixed-size buffer, then appends up to 512 payload bytes. `buildAck` on line 80 produces a 4-byte packet containing only the opcode and block number — that's the sequence number from the RFC." *(Cumulative: ~1:05)*
+> "DATA and ACK share the same two-field header: a two-byte opcode then a two-byte block number. `buildData` on line 68 writes opcode 3 and the block number into the first 4 bytes of a fixed-size buffer, then appends up to 512 payload bytes. `buildAck` on line 80 produces a 4-byte packet containing only the opcode and block number." *(Cumulative: ~1:05)*
 
 **Action:** Scroll to lines 89–100 (`buildError`).
 
