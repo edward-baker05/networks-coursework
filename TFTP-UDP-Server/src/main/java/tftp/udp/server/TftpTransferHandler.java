@@ -110,6 +110,9 @@ public class TftpTransferHandler implements Runnable {
                 }
 
                 blockNum++;
+                if (blockNum % 10000 == 0) {
+                    System.out.println("[Port " + clientPort + "] Sent block: " + blockNum);
+                }
             }
         }
 

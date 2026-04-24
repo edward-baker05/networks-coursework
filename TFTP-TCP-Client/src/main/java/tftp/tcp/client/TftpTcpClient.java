@@ -38,6 +38,11 @@ public class TftpTcpClient {
         String host      = "localhost";
         int    port      = 6970;
 
+        System.out.println(args.length);
+        for (String arg : args) {
+            System.out.println(arg);
+        }
+
         if (args.length >= 2) {
             operation = args[0].toLowerCase();
             filename  = args[1];

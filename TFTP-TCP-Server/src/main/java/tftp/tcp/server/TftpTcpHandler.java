@@ -57,10 +57,6 @@ public class TftpTcpHandler implements Runnable {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // RRQ: read the requested file and stream it to the client as one DATA message.
-    // -------------------------------------------------------------------------
-
     private void handleRRQ(DataInputStream in, DataOutputStream out,
                            String filename, String remote) throws IOException {
         Path filePath = baseDir.resolve(filename);
@@ -79,10 +75,6 @@ public class TftpTcpHandler implements Runnable {
         TftpTcpProtocol.writeData(out, data);
         System.out.println("[RRQ] Complete: " + filename);
     }
-
-    // -------------------------------------------------------------------------
-    // WRQ: receive a DATA message from the client and write it to a local file.
-    // -------------------------------------------------------------------------
 
     private void handleWRQ(DataInputStream in, DataOutputStream out,
                            String filename, String remote) throws IOException {
